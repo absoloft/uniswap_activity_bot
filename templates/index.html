@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title></title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+        }
+        .top-section {
+            display: flex;
+            justify-content: space-between;
+            width: 80%;
+            margin: auto;
+        }
+        .bubble-chart-container, .dextools-widget-container {
+            width: 48%;
+            height: 500px;
+            position: relative;
+            border: 1px solid #ddd;
+        }
+        .dextools-widget-container iframe {
+            width: 100%;
+            height: 100%;
+        }
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            overflow: hidden;
+            border: 1px solid #ddd;
+        }
+        .scrollable-table {
+            height: 300px;
+            overflow-y: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #333;
+            color: white;
+            position: sticky;
+            top: 0;
+        }
+        #token-info {
+            text-align: center;
+            margin: 20px auto;
+        }
+        .copy-btn {
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+         .bubble-text {
+            fill: black;
+            text-anchor: middle;
+            cursor: pointer;
+        }
+        copied-text {
+            text-anchor: middle;
+            fill: orange;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        #token-info {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-around;
+        }
+        #dextools-copy-btn {
+            display: none; /* Initially hidden */
+        }
+        #refresh-bubble-chart {
+            position: absolute;
+            top: 0;
+            right: 0;
+        }
+        .overlay {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="top-section">
+        <div class="bubble-chart-container" id="refresh-container">
+            <div id="bubble-chart" style="height: 500px; width: 100%;"></div>
+            <button id="refresh-bubble-chart" class="copy-btn">Refresh Bubble Chart</button>
+            <div class="overlay" id="loading-overlay">
+                <p>Loading, please wait...</p>
+            </div>
+        </div>
+        <div class="dextools-widget-container">
+            <iframe id="dextools-widget" title="DEXTools Trading Chart" src=""></iframe>
+        </div>
+    </div>
+    <div class="container" id="token-info">
+        <h2></h2>
+        <p id="token-contract">Token Contract: <span></span></p>
+        <p id="transaction-count">Number of Transactions: <span></span></p>
+        <p id="total-eth">Cumulative ETH: <span></span></p>
+        <button id="dextools-copy-btn" class="copy-btn">Copy Dextools Link</button>
+    </div>
+    <div class="container">
+        <div class="scrollable-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>From</th>
+                        <th>ETH Balance</th>
+                        <th>Token</th>
+                        <th>Dextools</th>
+                        <th>Etherscan</th>
+                    </tr>
+                </thead>
+                <tbody id="transactions-table">
+                    <!-- Transactions will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        function copyToClipboard(link, buttonElement) {
+            navigator.clipboard.writeText(link)
+                .then(() => {
+                    const originalText = buttonElement.textContent;
+                    buttonElement.textContent = 'Copied!';
+                    setTimeout(() => {
+                        buttonElement.textContent = originalText;
+                    }, 1500); // Show 'Copied!' for 1.5 seconds
+                })
+                .catch(err => {
+                    console.error('Error in copying text: ', err);
+                });
+        }
+
+        function updateTransactionsTable(transactions) {
+            const table = document.getElementById('transactions-table');
+            table.innerHTML = ''; // Clear existing rows
+
+            transactions.forEach(tx => {
+                const row = table.insertRow();
+                row.insertCell(0).innerText = tx.from_address.slice(0, 6) + '...' + tx.from_address.slice(-4);
+                row.insertCell(1).innerText = tx.eth_balance.toFixed(2);
+                row.insertCell(2).innerText = tx.token.slice(0, 6) + '...' + tx.token.slice(-4);
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.textContent = 'Copy Link';
+                copyBtn.onclick = () => copyToClipboard(tx.dextools_link, copyBtn);
+                row.insertCell(3).appendChild(copyBtn);
+                row.insertCell(4).innerHTML = `<a href="${tx.etherscan_link}" target="_blank">Etherscan</a>`;
+            });
+        }
+
+        function updateBubbleMap(transactions) {
+            const tenMinutesAgo = new Date(new Date().getTime() - 10 * 60000); // 24 hours ago
+
+
+            const recentTransactions = transactions.filter(tx => {
+                // Parse the timestamp string into a JavaScript Date object
+                const txTimestamp = new Date(tx.timestamp);
+                return txTimestamp > tenMinutesAgo;
+            });
+
+            console.log("Recent Transactions for Bubble Map:", recentTransactions); // For verification
+
+            const tokenData = recentTransactions.reduce((acc, tx) => {
+                acc[tx.token] = (acc[tx.token] || 0) + 1;
+                return acc;
+            }, {});
+
+            createBubbles(tokenData);
+        }
+
+
+        function createBubbles(tokenData) {
+            console.log("Token data for bubbles:", tokenData);
+            const sortedData = Object.entries(tokenData)
+                .map(([token, count]) => ({ token, count }))
+                .sort((a, b) => b.count - a.count) // Sort by count
+                .slice(0, 20); // Keep only top 20
+
+            const width = document.getElementById('bubble-chart').clientWidth;
+            const height = 500;
+            const svg = d3.select("#bubble-chart").html("").append("svg").attr("width", width).attr("height", height);
+            const radiusScale = d3.scaleSqrt().domain([0, d3.max(sortedData, d => d.count)]).range([20, 80]);
+
+            const simulation = d3.forceSimulation(sortedData)
+                .force("charge", d3.forceManyBody().strength(100)) // Adjust strength
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collision", d3.forceCollide().radius(d => radiusScale(d.count)))
+                .on("tick", ticked);
+
+            function ticked() {
+                const bubbles = svg.selectAll(".bubble")
+                    .data(sortedData)
+                    .join("g")
+                    .attr("class", "bubble")
+                    .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+                bubbles.append("circle")
+                    .attr("r", d => radiusScale(d.count))
+                    .style("fill", "#4CAF50");
+
+                bubbles.append("text")
+                    .attr("class", "bubble-text")
+                    .style("font-size", d => `${radiusScale(d.count) / 4}px`)
+                    .text(d => d.token.slice(0, 6) + '...' + d.token.slice(-4))
+                    .attr("dy", "-0.5em")
+                    .on("click", (event, d) => {
+                        try {
+                            // Attempt to change the 'src' attribute
+                            document.getElementById('dextools-widget').src = `https://www.dextools.io/widget-chart/en/ether/pe-light/${d.token}?theme=light&chartType=2&chartResolution=30&drawingToolbars=false`;
+                        } catch (error) {
+                            console.error("Error setting Dextools link: ", error);
+                            // Handle the error or fail silently
+                        }
+                        event.stopPropagation();
+                        updateTokenInfo(d.token);
+                    });
+
+            }
+        }
+
+        function fetchAdditionalTokenData(token, callback) {
+            fetch(`/aggregate-token-data?tokenAddress=${token}&_=${new Date().getTime()}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data && typeof data.totalEthBalance === 'number') {
+                        callback(data);
+                    } else {
+                        callback({
+                            transactionCount: 'Not available',
+                            totalEthBalance: 'Not available'
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching additional token data:', error);
+                    callback({
+                        transactionCount: 'Not available',
+                        totalEthBalance: 'Not available'
+                    });
+                });
+        }
+
+        function updateTokenInfo(token) {
+            const tokenContractElement = document.querySelector('#token-info #token-contract span');
+            const dextoolsCopyButton = document.querySelector('#token-info #dextools-copy-btn');
+            const transactionCountElement = document.getElementById('transaction-count');
+            const totalEthElement = document.getElementById('total-eth');
+
+            tokenContractElement.textContent = token.slice(0, 6) + '...' + token.slice(-4);
+            dextoolsCopyButton.style.display = 'block'; // Show the button
+            dextoolsCopyButton.onclick = () => copyToClipboard(`https://www.dextools.io/app/uniswap/pair-explorer/${token}`, dextoolsCopyButton);
+
+            fetchAdditionalTokenData(token, data => {
+                transactionCountElement.textContent = `Number of Transactions: ${data.transactionCount}`;
+                totalEthElement.textContent = `Cumulative ETH: ${
+                    typeof data.totalEthBalance === 'number' 
+                        ? data.totalEthBalance.toFixed(2) 
+                        : 'Not available'
+                } ETH`;
+            });
+        }
+
+        function fetchTransactions() {
+            fetch('/transactions')
+                .then(response => response.json())
+                .then(transactions => {
+                    console.log("Raw Transactions from server:", transactions); // Add this line
+                    updateTransactionsTable(transactions);
+                    // updateBubbleMap(transactions);
+                })
+                .catch(error => console.error('Error fetching transactions:', error));
+        }
+
+        document.getElementById('refresh-bubble-chart').addEventListener('click', function() {
+            const overlay = document.getElementById('loading-overlay');
+            overlay.style.display = 'flex'; // Show loading overlay
+
+            fetch('/transactions')
+                .then(response => response.json())
+                .then(transactions => {
+                    updateBubbleMap(transactions); // Update the bubble map with transactions from the last 10 minutes
+                })
+                .catch(error => console.error('Error fetching transactions for bubbles:', error))
+                .finally(() => {
+                    setTimeout(() => {
+                        overlay.style.display = 'none'; // Hide overlay after 8 seconds
+                    }, 8000);
+                });
+        });
+
+        setInterval(fetchTransactions, 10000); // Fetch new transactions every 10 seconds
+
+
+    </script>
+</body>
+</html>
