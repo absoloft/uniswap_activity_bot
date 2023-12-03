@@ -10,6 +10,8 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from threading import Timer
 from datetime import datetime
+from config import ETHERSCAN_API_KEY
+
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///transactions.db'
@@ -33,8 +35,6 @@ class Transaction(db.Model):
                 f"token={self.token}, "
                 f"timestamp={self.timestamp}>")
 
-
-ETHERSCAN_API_KEY = 'YGYGHTNB2PPH9M243WE446Y53W6Y6EJX61'
 UNISWAP_ROUTER_ADDRESS = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D'
 API_URL = "https://api.etherscan.io/api"
 
